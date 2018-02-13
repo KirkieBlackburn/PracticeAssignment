@@ -1,0 +1,216 @@
+---
+title: "PracticeAssignment"
+author: "Blackburn"
+date: "February 5, 2018"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+library(ggplot2)
+library(dplyr)
+library(gridExtra)
+library(grid)
+library(corrplot)
+library(arules)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Initial Setup
+
+After loading the libraries I will use, I first looked at the file in excel, and saved a copy as a CSV so it would easily be loaded into R. I upload the data and preview first few rows to confirm that things look correct. 
+
+```{r}
+dat <- read.csv("Copy_of_Dummy_survey_data.csv", sep = ",", header = TRUE)
+head(dat)
+```
+
+#**Question 1**
+**"Combine 'Primary' with 'Secondary' and 'Third' binary variables to obtain a usage binary variable of each platform. Present primary and total (i.e. irrespective of rank) usage of platforms in an appropriate visualisation"**
+
+I removed unnecessary columns for this assignment. I found the easiest way to do this was to look at the mapping file and use the numeric value of the columns, (and subtracting 1 for the header).  
+
+```{r}
+dat <- dat[-c(1:9, 22:48)]
+head(dat)
+```
+
+This leaves us with 12 variables, with 9999 boolean observations. This dataset seems to already be quite clean, at least in regard to Q10, at least insomuch as there are no missing values, and being that all values are booleans, there not outlier issues, or conversions of the data into different formats to worry about at this time. 
+
+From here I rename the Columns to something more digestible. I use the alphabet equivalent for the numbered desktop platforms, since they are not named in the mapping document or in a logical order; and use a simple 1, 2, 3 for primary, secondary, and tertiary variable. 
+
+**THERE IS A TYPO IN THE MAPPING DOCUMENT on row 14, "Q10.2.1	Q10-Platform 1-Primary", should read "Q10.2.1	Q10-Platform 2-Primary"**
+
+```{r}
+names(dat) <- c("C1","C2","C3","B1","B2","B3","A1","A2","A3","D1","D2","D3")
+head(dat)
+```
+
+For each platform, I combine Primary, Secondary, and Tertiary variables and create a usage binary variable in a new column, identified by the numeric character  for platform identification alongside "U" for usage. We now have 16 total variable columns. 
+
+```{r}
+dat$CU <- dat$C1 + dat$C2 + dat$C3
+dat$BU <- dat$B1 + dat$B2 + dat$B3
+dat$AU <- dat$A1 + dat$A2 + dat$A3
+dat$DU <- dat$D1 + dat$D2 + dat$D3
+summary(dat)
+```
+
+We can already see some interesting stats forming with a quick summary command; and questions for further explanation forming. Such as the mean for each of the new overall usage columns shows the overall potential popularity of the platforms in comparison to others A = .08, B = .27, C = .50, D = .42. So this would appear to be more of an overall war between the Third and Fourth platforms surveyed in regard to usage. 
+
+I create 2 subdatasets to make charting easier to explore the data, for the items that have been requested. I also note that many of the users surveyed did not list any of the platforms as their primary; which adds another element to explore. 
+
+
+```{r}
+primary <- dat[-c(2:3, 5:6, 8:9, 11:16)]
+names(primary) <- c("Platform 3", "Platform 2", "Platform 1", "Platform 4")
+primary$None <- 0
+primary$None[rowSums(primary) == 0] <- 1
+
+usage <-dat[-c(1:12)]
+names(usage) <- c("Platform 3", "Platform 2", "Platform 1", "Platform 4")
+usage$None <- 0
+usage$None[rowSums(usage) == 0] <- 1
+```
+
+I want to be able to visualize these data side by side, and not necessarily use a pairwise function; this should make the data more readily understood by our audience in relation to each other. With my new subsets and the dplyr package, I create counts for both the "Primary Use" and "Overall Use" variables. I also print a quick table with my counts, and new group labels. The data is becoming more clear.    
+
+
+```{r}
+prim_sum <- primary %>% summarise_all(funs(sum)) %>% 
+            tidyr::gather("Label", "Count", 1:5) %>% 
+            mutate(Group="Primary Platform")
+
+use_sum <- usage %>% summarise_all(funs(sum)) %>% 
+            tidyr::gather("Label", "Count", 1:5) %>% 
+            mutate(Group="Overall Usage")
+
+graphdata <- bind_rows(prim_sum, use_sum)
+
+print(graphdata)
+```
+#Question 1 Visualization
+
+```{r}
+cbbPalette <- c("#0072B2", "#CC79A7")
+
+p1 <- ggplot(graphdata, aes(x=Label, y=Count)) +
+      geom_bar(stat="identity", position = "dodge", aes(fill=Group))+
+      labs(title = "Platform Primary and Overall Usage") +
+      ylab("Frequency Count") +
+      xlab("Platforms")+
+      guides(fill=guide_legend(title=NULL))+
+      scale_fill_manual(values=cbbPalette)+
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+p1
+```
+
+
+#**Question 2**
+**Run the appropriate models to answer the following business questions:**
+**2a. How does the profile of developers who use Platform 1 as a primary compare to that of those who use it as a secondary, and to that of those who use it as a third option?**
+
+
+We know that only 409 users use "Platform 1" (Identified as A in my dataset) as their primary platform. However, 829 use it in some way (either primary, secondary, or as a tertiary platform.) We'll start looking at Platform 1 users with a quick frequency of counts table/visualization, and then we'll make a tree to see how they move from platform to platform based off of their use of Platform 1. 
+
+```{r}
+AUsers <- dat[,c(7:9)]
+names(AUsers) <- c("Primary","Secondary","Tertiary")
+head(AUsers)
+
+A_Users <- AUsers %>% summarise_all(funs(sum)) %>% 
+            tidyr::gather("Label", "Count", 1:3) %>% 
+            mutate(Group="Platform 1 Use")
+print(A_Users)
+```
+
+```{r}
+p2 <- ggplot(A_Users, aes(x=Label, y=Count)) + 
+      geom_bar(stat="identity") +
+      aes(fill=Group) +
+      labs(title = "Platform 1", subtitle = "As Primary, Secondary, or Tertiary Use") +
+      ylab("Frequency Count") +
+      xlab("Label") +
+      guides(fill=guide_legend(title=NULL)) +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+      scale_fill_manual(values="#0072B2")
+p2
+```
+
+Let's see if there is any linear correlations between the variables with the corrplot package. The blue is positive, the red is negative, and the size of the circle indicates the strength of the correlation. Being that so many of the variables hardly have any correlations that are significant enough to show up well in the plot in regard to those who use the First Platform (A), I also added the numbers within the same figure.   
+
+```{r}
+linexamine <- dat[-c(13:16)]
+M <- cor(linexamine)
+corrplot.mixed(M, upper = "square", lower.col = "black", number.cex = .7, tl.col = "grey") 
+```
+
+To ensure clarity as we are looking for Platform 1, I moved the section to the upper left of our visualization. 
+
+
+#**Overall Results, 2.a**
+
+```{r}
+corrplot.mixed(M, order = "alphabet", upper = "square", lower.col = "black", number.cex = .7, tl.col = "grey") 
+```
+
+*Platform 1 as Primary*
+From the visual above, we can see that if one is using A1 (Platform 1 as the primary platform), then they are most likely to use the C (Third  Platform) as their tertiary option, with the B (Second Platform) as their secondary option. They will be negatively correlated to D (Fourth Platform).
+
+*Platform 1 as Secondary*
+If A2 (Platform 1 as secondary) is selected, it would appear from the numbers and visualization that there is the most likely path towards a primary platform of either B or C (Second and Third Platforms, respectively) with identical correlations of 0.02. The tertiary options favor C (Third Platform) slightly over B. Once again, D (Fourth Platform) is always negatively or has no correlation.
+
+*Platform 1 as Tertiary*
+If A3 (Platform 1 as tertiary) is selected by the user, the strongest correlation appears to be for use of C (Third Platform) as secondary, with B (Second Platform) as primary. D is again almost always negatively correlated.
+
+It is important to remember though, that this is only showing us linear relationships.  
+
+**General Conclusion** 
+It would appear that Platform 1 is the least popular of all the options surveyed. Also, it has the weakest linear connections in regard to other platforms. Additionally, those who use Platform 1 at all, tend to avoid the most popular platform for use, Platform 4. This would lead to further questions as to why; is this a system used for a specific niche market, or is there a tribal alliance to avoid using the most typical systems with something more abstract in this user group?
+
+
+#Question 2b.
+**2b. How is the usage of different platforms linked? Which combinations of primary, secondary, and tertiary platforms are the most common?**
+
+An excellent package to use when looking at data in this way is arules, it can identify frequent item sets. 
+
+We can Identify key patterns in how the platforms are linked through usage. The most dominant and frequently occurring being in Platform 2 (B) and Platform 3 (C) primary users. We are able to identify the most commonly used secondary platform as the inverse, and the tertiary platform as a different user group of either Platform 1 (A) or Platform 4 (D).
+
+
+```{r}
+newdat <- dat[, 1:12]
+newdat <- newdat[rowSums(newdat) > 0,]
+
+for (i in 1:ncol(newdat)){
+  newdat[,i] <- as.logical(newdat[,i])
+}
+
+mydata <- as(newdat, "transactions")
+
+image(mydata[1:10,], axes = FALSE)
+
+mod1 <- apriori(mydata, parameter = list(support=0.0001), control = list(verbose=FALSE))
+inspect(sort(mod1, by="support", decreasing = TRUE))
+```
+
+#Question 2c. 
+**Based on the information provided, can we identify distinct segments of developers? If so, which ones and which are the most dominant?**
+
+To further explore grouping, I made a visualization with hierarchical clustering. The clusters are shown in the boxes; and I optimized this to four groups. Naturally, you could technically have as many "clusters" as you have observations in a dataset, and I didn't want to over-fit this; but it seemed like a good start - in the interest of time, this seemed to be an appropriate visual that made sense. 
+
+I enjoy the corrplot package, and this was actually something I discovered as I was researching ways to make it more readable - its ability to make hierarchical clusters. Being that it confirmed  what I had discovered in question 2b, I was very happy with how it worked out, and this didn't take very long. If I had more time, I would added a scatterplot visual that showed the different clusters of users differentiated by color, and also done a K-means clustering study, to see if any matches could be made there as well. 
+
+```{r}
+corrplot(M, order = "hclust", addrect = 4, col = terrain.colors(100))
+```
+
+
+We see some connections between different camps of platform users, notably from our previous diagrams and number analysis, we found that those who prefer the First Platform (A) in their toolkit, tend to have a very weak potential connection to the Fourth Platform (D) as their 2nd or 3rd options. Additionally, we do not see a lot of cross pollination in the reverse scenario, which is those who use the Fourth Platform (D) have a negative correlation to using the First Platform (A) as their 2nd or 3rd option. However, we see that there is a very high connection to using the Second (B) and Third (C) Technology Platforms, and an intermixture of high linear correlation to using those platforms as a mixture of either the 2nd or 3rd options interwoven with each other. 
+
+From our hierarchical clustering, it would appear that the most dominant clusterings would be the groupings around C1 & B2 users, and B1 & C2 users. There is also a cluster around those who use D1 (Platform 4 as their primary) which is certainly in tune with what we've seen so far in this study.  
+
+There is also a significant cluster with a large mixture of Technology Platforms; A1/A2/D2/C3/B3. For a lack of a better terminology, this seems to be "everyone else." This is interesting as our initial correlation matrix did indeed focus on only linear relationships, so if we further explored the data we may find it takes more interesting  hierarchical shapes. 
+
+Keeping in mind that correlation doesn't always mean causation, we have a lot more data analysis to explore. What are these technology platforms used for on a day to day basis, and what are the environments? For example, are those surveyed in larger corporations who are unable to move on from a legacy system? What aspects in their platforms do they find useful, and why would the other technology stacks not fulfill their needs? Is there a cost issue? There are many questions that need to be delved into before we make any genuine assumptions.
+ 
